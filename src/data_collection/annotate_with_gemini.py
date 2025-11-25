@@ -7,8 +7,8 @@ from tqdm import tqdm
 import typing_extensions as typing
 
 # === CONFIGURATION ===
-INPUT_FILE = 'data/raw/imdb_reviews.csv'
-OUTPUT_FILE = 'data/processed/imdb_annotations_gemini.csv'
+INPUT_FILE = 'data/raw/news_articles.csv'
+OUTPUT_FILE = 'data/processed/news_annotations_gemini.csv'
 MODEL_NAME = 'gemini-1.5-flash'  # fast and cost-effective
 # MODEL_NAME = 'gemini-1.5-pro' # Use if higher quality is needed (more expensive/slower)
 
