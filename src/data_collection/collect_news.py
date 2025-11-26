@@ -8,18 +8,32 @@ from datetime import datetime
 
 # === CONFIGURATION ===
 # List of opinion/commentary section URLs or main URLs
+# Expanded to improve yield toward ~3k samples
 SOURCES = [
     {'url': 'https://www.theguardian.com/commentisfree/all', 'name': 'The Guardian'},
     {'url': 'https://www.aljazeera.com/opinion/', 'name': 'Al Jazeera'},
     {'url': 'https://www.huffpost.com/opinion', 'name': 'HuffPost'},
     {'url': 'https://www.nbcnews.com/think', 'name': 'NBC News Think'},
     {'url': 'https://www.theatlantic.com/category/opinion/', 'name': 'The Atlantic'},
-    {'url': 'https://www.npr.org/sections/opinion/', 'name': 'NPR'}
+    {'url': 'https://www.npr.org/sections/opinion/', 'name': 'NPR'},
+    {'url': 'https://www.nytimes.com/section/opinion', 'name': 'NYTimes Opinion'},
+    {'url': 'https://www.washingtonpost.com/opinions/', 'name': 'Washington Post'},
+    {'url': 'https://www.latimes.com/opinion', 'name': 'LA Times'},
+    {'url': 'https://www.wsj.com/news/opinion', 'name': 'WSJ Opinion'},
+    {'url': 'https://www.theglobeandmail.com/opinion/', 'name': 'Globe and Mail'},
+    {'url': 'https://www.chicagotribune.com/opinion/', 'name': 'Chicago Tribune'},
+    {'url': 'https://www.nydailynews.com/opinion/', 'name': 'NY Daily News'},
+    {'url': 'https://www.usatoday.com/opinion/', 'name': 'USA Today'},
+    {'url': 'https://www.politico.com/tag/opinion', 'name': 'Politico Opinion'},
+    {'url': 'https://time.com/tag/opinion/', 'name': 'Time Opinion'},
+    {'url': 'https://www.reuters.com/world/', 'name': 'Reuters World Analysis'},
+    {'url': 'https://www.ft.com/stream/sectionsId/MTA0ZDUxMmUtNDkzNi00NTAxLWFlM2QtNDI1YmY4OWY5YjBk-QWxs', 'name': 'FT Opinion'},
 ]
 
 OUTPUT_FILE = "data/raw/news_articles.csv"
-MAX_TOTAL_SAMPLES = 300
-SAMPLES_PER_SOURCE = 60 # Try to balance
+# Target ~1200 English-language opinion pieces total
+MAX_TOTAL_SAMPLES = 1200
+SAMPLES_PER_SOURCE = 80  # Overshoot slightly per source to reach the global target
 
 def scrape_source(source_info):
     url = source_info['url']
@@ -51,6 +65,10 @@ def scrape_source(source_info):
             # Download and parse
             article.download()
             article.parse()
+            
+            # Skip non-English content when language metadata is present
+            if article.meta_lang and article.meta_lang.lower() != 'en':
+                continue
             
             # Basic validation
             text = article.text
