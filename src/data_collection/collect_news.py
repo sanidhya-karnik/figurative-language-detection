@@ -5,35 +5,72 @@ import os
 import time
 from tqdm import tqdm
 from datetime import datetime
+from urllib.parse import urlsplit, urlunsplit
+import re
 
 # === CONFIGURATION ===
 # List of opinion/commentary section URLs or main URLs
-# Expanded to improve yield toward ~3k samples
+# Focus on opinion/analysis outlets with higher volume; recency filter will keep last ~30 days
 SOURCES = [
     {'url': 'https://www.theguardian.com/commentisfree/all', 'name': 'The Guardian'},
-    {'url': 'https://www.aljazeera.com/opinion/', 'name': 'Al Jazeera'},
-    {'url': 'https://www.huffpost.com/opinion', 'name': 'HuffPost'},
-    {'url': 'https://www.nbcnews.com/think', 'name': 'NBC News Think'},
-    {'url': 'https://www.theatlantic.com/category/opinion/', 'name': 'The Atlantic'},
-    {'url': 'https://www.npr.org/sections/opinion/', 'name': 'NPR'},
-    {'url': 'https://www.nytimes.com/section/opinion', 'name': 'NYTimes Opinion'},
     {'url': 'https://www.washingtonpost.com/opinions/', 'name': 'Washington Post'},
-    {'url': 'https://www.latimes.com/opinion', 'name': 'LA Times'},
-    {'url': 'https://www.wsj.com/news/opinion', 'name': 'WSJ Opinion'},
-    {'url': 'https://www.theglobeandmail.com/opinion/', 'name': 'Globe and Mail'},
-    {'url': 'https://www.chicagotribune.com/opinion/', 'name': 'Chicago Tribune'},
-    {'url': 'https://www.nydailynews.com/opinion/', 'name': 'NY Daily News'},
-    {'url': 'https://www.usatoday.com/opinion/', 'name': 'USA Today'},
-    {'url': 'https://www.politico.com/tag/opinion', 'name': 'Politico Opinion'},
-    {'url': 'https://time.com/tag/opinion/', 'name': 'Time Opinion'},
-    {'url': 'https://www.reuters.com/world/', 'name': 'Reuters World Analysis'},
-    {'url': 'https://www.ft.com/stream/sectionsId/MTA0ZDUxMmUtNDkzNi00NTAxLWFlM2QtNDI1YmY4OWY5YjBk-QWxs', 'name': 'FT Opinion'},
+    {'url': 'https://www.nytimes.com/section/opinion', 'name': 'NYTimes Opinion'},
+    {'url': 'https://www.nbcnews.com/think', 'name': 'NBC News Think'},
+    {'url': 'https://www.reuters.com/world/', 'name': 'Reuters Analysis'},
+    {'url': 'https://www.politico.com/news/opinion', 'name': 'Politico Opinion'},
+    {'url': 'https://time.com/section/opinion', 'name': 'TIME Opinion'},
+    {'url': 'https://www.cnn.com/opinions', 'name': 'CNN Opinion'},
+    {'url': 'https://www.foxnews.com/opinion', 'name': 'Fox News Opinion'},
+    {'url': 'https://apnews.com/hub/analysis', 'name': 'AP Analysis'},
+    {'url': 'https://www.aljazeera.com/opinions', 'name': 'Al Jazeera Opinion'},
 ]
 
 OUTPUT_FILE = "data/raw/news_articles.csv"
-# Target ~1200 English-language opinion pieces total
-MAX_TOTAL_SAMPLES = 1200
-SAMPLES_PER_SOURCE = 80  # Overshoot slightly per source to reach the global target
+# No hard cap; rely on source volume + recency filtering
+MAX_TOTAL_SAMPLES = None
+SAMPLES_PER_SOURCE = None  # Unbounded per source
+
+def truncate_head_tail(text, max_tokens=450, head_ratio=0.75):
+    """
+    Preserve both the lead and the ending to keep context for downstream models.
+    Token budget is approximate (whitespace split).
+    """
+    if not text:
+        return text
+    tokens = text.split()
+    if len(tokens) <= max_tokens:
+        return text
+    
+    head_tokens = max(1, int(max_tokens * head_ratio))
+    tail_tokens = max_tokens - head_tokens
+    
+    # Sentence-aware: split sentences, then rebuild while respecting head/tail budgets
+    sentences = re.split(r'(?<=[.!?])\\s+', text)
+    
+    head_parts = []
+    head_count = 0
+    for sent in sentences:
+        sent_tokens = sent.split()
+        if head_count + len(sent_tokens) > head_tokens:
+            break
+        head_parts.append(sent)
+        head_count += len(sent_tokens)
+    
+    tail_parts = []
+    tail_count = 0
+    for sent in reversed(sentences):
+        sent_tokens = sent.split()
+        if tail_count + len(sent_tokens) > tail_tokens:
+            break
+        tail_parts.append(sent)
+        tail_count += len(sent_tokens)
+    tail_parts = list(reversed(tail_parts))
+    
+    if not head_parts and not tail_parts:
+        # fallback to simple token truncation
+        return " ".join(tokens[:head_tokens] + ["..."] + tokens[-tail_tokens:])
+    
+    return " ".join(head_parts + ["..."] + tail_parts)
 
 def scrape_source(source_info):
     url = source_info['url']
@@ -52,29 +89,68 @@ def scrape_source(source_info):
     print(f"Found {len(paper.articles)} potential articles.")
     
     collected_articles = []
+    seen_urls = set()
+    seen_titles = set()
     
-    # Sort or shuffle? For now, we take the top ones which are usually newest
-    # Newspaper3k articles are generators, so we iterate
-    
-    count = 0
+    # Iterate all available articles; filter to last ~30 days and English
     for article in paper.articles:
-        if count >= SAMPLES_PER_SOURCE:
-            break
-            
         try:
+            # Normalize URL early to avoid duplicate downloads
+            raw_url = article.url
+            if raw_url:
+                parts = urlsplit(raw_url)
+                normalized_url = urlunsplit((parts.scheme, parts.netloc, parts.path, '', ''))
+                if normalized_url in seen_urls:
+                    continue
+            else:
+                normalized_url = None
+
             # Download and parse
             article.download()
             article.parse()
             
+            # Deduplicate by URL or title (some feeds repeat items)
+            if normalized_url:
+                if normalized_url in seen_urls:
+                    continue
+                seen_urls.add(normalized_url)
+            parsed_title = (article.title or "").strip().lower()
+            if parsed_title and parsed_title in seen_titles:
+                continue
+            if parsed_title:
+                seen_titles.add(parsed_title)
+
             # Skip non-English content when language metadata is present
             if article.meta_lang and article.meta_lang.lower() != 'en':
                 continue
-            
+
+            # Enforce recency (publish_date within ~30 days)
+            publish_date = article.publish_date
+            if publish_date:
+                try:
+                    if isinstance(publish_date, str):
+                        publish_date = datetime.fromisoformat(publish_date.split('T')[0])
+                except Exception:
+                    pass
+            if publish_date:
+                age_days = (datetime.now() - publish_date).days
+                if age_days > 31:
+                    continue
+            else:
+                # If no reliable date, skip to keep data recent
+                continue
+
+            # Skip non-English content when language metadata is present
+            # (duplicate check above ensures we don't process same URL twice)
+
             # Basic validation
             text = article.text
             if not text or len(text) < 500: # Skip very short or empty texts
                 continue
-                
+            
+            # Truncate to keep lead and ending for downstream models
+            text = truncate_head_tail(text, max_tokens=450, head_ratio=0.75)
+            
             # Check keywords to ensure it's likely opinion if we are on a main page
             # (Less critical if we target opinion section URLs directly)
             
@@ -83,10 +159,9 @@ def scrape_source(source_info):
                 'url': article.url,
                 'title': article.title,
                 'text': text,
-                'publish_date': str(article.publish_date) if article.publish_date else datetime.now().strftime("%Y-%m-%d")
+                'publish_date': publish_date.strftime("%Y-%m-%d") if publish_date else ""
             })
             
-            count += 1
             print(f"  - Scraped: {article.title[:50]}...")
             
             # Be polite
@@ -99,7 +174,7 @@ def scrape_source(source_info):
     return collected_articles
 
 def main():
-    print(f"Starting Multi-Source News Scraping (Target: ~{MAX_TOTAL_SAMPLES} samples)...")
+    print(f"Starting Multi-Source News Scraping (recency-limited, no hard cap)...")
     
     # Ensure output directory exists
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
@@ -107,9 +182,6 @@ def main():
     all_articles = []
     
     for source in SOURCES:
-        if len(all_articles) >= MAX_TOTAL_SAMPLES:
-            break
-        
         articles = scrape_source(source)
         all_articles.extend(articles)
         
@@ -123,10 +195,6 @@ def main():
         # Shuffle to mix sources
         df = df.sample(frac=1).reset_index(drop=True)
         
-        # Limit to global max
-        if len(df) > MAX_TOTAL_SAMPLES:
-            df = df.head(MAX_TOTAL_SAMPLES)
-            
         df.to_csv(OUTPUT_FILE, index=False)
         print(f"\nSuccess! Scraped {len(df)} articles from {len(SOURCES)} sources.")
         print(f"Saved to: {OUTPUT_FILE}")
