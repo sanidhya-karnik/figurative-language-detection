@@ -1,0 +1,4 @@
+Domain,Macro_F1,Model
+reddit,0.7188905547226387,reddit_finetuned_deberta
+imdb,0.8127810223794474,imdb_finetuned_deberta
+news,0.5151515151515151,news_finetuned_deberta
