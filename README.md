@@ -9,7 +9,7 @@
 
 **A comprehensive NLP pipeline for detecting metaphors and irony/sarcasm in text using state-of-the-art transformer models.**
 
-[Features](#features) • [Installation](#installation) • [Usage](#usage) • [Results](#results) • [Project Structure](#project-structure)
+[Features](#features) • [Installation](#installation) • [Usage](#usage) • [Project Structure](#project-structure)
 
 </div>
 
@@ -88,9 +88,6 @@ Create a `.env` file in the project root:
 REDDIT_CLIENT_ID=your_client_id
 REDDIT_CLIENT_SECRET=your_client_secret
 REDDIT_USER_AGENT=FigurativeLanguageBot/1.0
-
-# Google Gemini API (for annotation)
-GEMINI_API_KEY=your_gemini_key
 ```
 
 ---
@@ -121,21 +118,7 @@ python -m src.data_collection.collect_news
 ```
 Collects opinion/analysis pieces from 11 major news sources with recency filtering (last 30 days).
 
-### 2. Data Annotation
-
-Use Google Gemini for automated annotation:
-```bash
-python -m src.data_collection.annotate_with_gemini
-```
-
-Configure input/output in the script:
-```python
-INPUT_FILE = 'data/raw/your_data.csv'
-OUTPUT_FILE = 'data/processed/your_data_annotated.csv'
-MODEL_NAME = 'gemini-1.5-flash'  # or 'gemini-1.5-pro' for higher quality
-```
-
-### 3. Prepare VUA Corpus
+### 2. Prepare VUA Corpus
 
 If using the VUA Metaphor Corpus:
 ```bash
@@ -152,7 +135,7 @@ data/
     ...
 ```
 
-### 4. Training
+### 3. Training
 
 #### Train Baseline Models on VUA
 ```bash
@@ -175,7 +158,7 @@ python src/train_multi_domain.py --model roberta --domain all
 | `--domain` | `reddit`, `imdb`, `news`, `all` | Training domain |
 | `--prepare-only` | - | Only prepare data splits |
 
-### 5. Cross-Domain Evaluation
+### 4. Cross-Domain Evaluation
 
 Test trained models across domains:
 ```bash
@@ -186,39 +169,6 @@ Or test a specific model:
 ```bash
 python test_imdb_cross_domain.py --model_name roberta
 ```
-
----
-
-## Results
-
-### Multi-Domain Performance (DeBERTa)
-
-| Domain | Macro F1 | Notes |
-|--------|----------|-------|
-| **IMDb** | 0.813 | Best in-domain performance |
-| **Reddit** | 0.719 | Good cross-domain transfer |
-| **News** | 0.515 | Challenging domain shift |
-
-### Cross-Domain Binary Classification (RoBERTa)
-
-| Metric | Reddit | News |
-|--------|--------|------|
-| Accuracy | 0.619 | 0.642 |
-| F1 (Macro) | 0.447 | 0.621 |
-| F1 (Weighted) | 0.503 | 0.644 |
-
-### Label Distribution Performance
-
-The model shows varying performance across original label types:
-
-| Label | Reddit Accuracy | News Accuracy |
-|-------|-----------------|---------------|
-| Literal | 99.5% | 69.5% |
-| Metaphor | 8.5% | 58.8% |
-| Irony | 0.0% | 48.3% |
-| Both | 20.0% | 55.6% |
-
-> **Note**: These results reveal the challenge of cross-domain figurative language detection, particularly for subtle irony.
 
 ---
 
@@ -304,14 +254,6 @@ class WeightedTrainer(Trainer):
         loss_fct = nn.CrossEntropyLoss(weight=self.class_weights)
 ```
 
-### Annotation Schema
-
-The Gemini annotation uses structured prompts following MIPVU guidelines:
-
-- **Metaphor**: Contextual meaning contrasts with basic/literal meaning
-- **Irony/Sarcasm**: Intended meaning contradicts surface meaning
-- **Literal**: No figurative language present
-
 ---
 
 ## Dependencies
@@ -326,7 +268,6 @@ The Gemini annotation uses structured prompts following MIPVU guidelines:
 | `praw` | >=7.7.0 | Reddit API wrapper |
 | `beautifulsoup4` | >=4.12.0 | HTML parsing |
 | `newspaper3k` | - | News article extraction |
-| `google-generativeai` | - | Gemini API client |
 
 ---
 
